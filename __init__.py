@@ -64,7 +64,6 @@ class EnglishQuestionParser(object):
         return None
 
 
-
 class WikipediaFallback(FallbackSkill):
     def __init__(self):
         super(WikipediaFallback, self).__init__(name="WikipediaSkill")
@@ -74,13 +73,9 @@ class WikipediaFallback(FallbackSkill):
         self.register_fallback(self.handle_fallback, 8)
 
     def handle_fallback(self, message):
-        print "HANDLING FALLBACK WITH WIKI"
         utterance = message.data.get('utterance', '')
         parsed_question = self.fallback_parser.parse(utterance)
-        print parsed_question
-        print "PARSING DONE"
         if parsed_question:
-            print parsed_question
             title = parsed_question.get('Query')
             results = wiki.search(title, 1)
             summary = re.sub(
@@ -96,4 +91,4 @@ class WikipediaFallback(FallbackSkill):
 
 
 def create_skill():
-    return WikipediaSkill()
+    return WikipediaFallback()
