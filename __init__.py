@@ -23,13 +23,8 @@ import wikipedia as wiki
 from adapt.intent import IntentBuilder
 from os.path import join, dirname
 
-from mycroft.skills.core import FallbackSkill
+from mycroft.skills.core import FallbackSkill, intent_handler
 from mycroft.util import read_stripped_lines
-from mycroft.util.log import getLogger
-
-__author__ = 'jdorleans'
-
-LOGGER = getLogger(__name__)
 
 
 class EnglishQuestionParser(object):
@@ -50,7 +45,7 @@ class EnglishQuestionParser(object):
             return groupdict
         elif 'Query1' and 'Query2' in groupdict:
             return {
-                'QuestionWord': groupdict.get('QuestionWord'),
+                'QuestionWord': groupdit.get('QuestionWord'),
                 'QuestionVerb': groupdict.get('QuestionVerb'),
                 'Query': ' '.join([groupdict.get('Query1'), groupdict.get(
                     'Query2')])
@@ -66,11 +61,13 @@ class EnglishQuestionParser(object):
 
 class WikipediaFallback(FallbackSkill):
     def __init__(self):
-        super(WikipediaFallback, self).__init__(name="WikipediaSkill")
+        super(WikipediaFallback, self).__init__()
         self.fallback_parser = EnglishQuestionParser()
+        self.disabmiguate = None
 
     def initialize(self):
         self.register_fallback(self.handle_fallback, 8)
+        self.register_fallback(self.handle_disambiguate, 100)
 
     def handle_fallback(self, message):
         utterance = message.data.get('utterance', '')
@@ -78,13 +75,66 @@ class WikipediaFallback(FallbackSkill):
         if parsed_question:
             title = parsed_question.get('Query')
             results = wiki.search(title, 1)
-            summary = re.sub(
-                r'\([^)]*\)|/[^/]*/', '',
-                wiki.summary(results[0], 1))
+            try:
+                summary = re.sub(
+                    r'\([^)]*\)|/[^/]*/', '',
+                    wiki.summary(results[0], 1))
+                self.disambiguate = None
+            except wiki.DisambiguationError as e:
+                # remove last two entries and limit to three items
+                self.disambiguate = e.options[:-2]
+                summary = None
+
             if summary:
                 self.speak(summary)
                 return True
         return False
+
+    def handle_disambiguate(self, message):
+        if self.disambiguate:
+            if len(self.disambiguate) >= 3:
+                data = {'alt1': self.disambiguate[0],
+                        'alt2': self.disambiguate[1],
+                        'alt3': self.disambiguate[2]}
+                print data
+                # More than three options
+                self.speak_dialog('disambiguate.more.than.three',
+                                  data=data,
+                                  expect_response=True)
+            elif len(self.disambiguate) == 3:
+                    # Three alternatives
+                    self.speak_dialog('disambiguate.three',
+                                      data=data,
+                                      expect_response=True)
+            elif len(self.disabmiguate) == 2:
+                data = {'alt1': self.disambiguate[0],
+                        'alt2': self.disambiguate[1]}
+                self.speak_dialog('disambiguate.two', data=data,
+                                  expect_response=True)
+            else:
+                self.disambiguate = None
+                return False
+            self.disambiguate = None
+            self.set_context('DisambiguationContext')
+            return True
+        return False
+
+    @intent_handler(IntentBuilder('A').require('DisambiguationContext') \
+                                   .require('DisambiguationTitle'))
+    def handle_disambiguation_response(self, message):
+        self.remove_context('DisambiguationContext')
+        title = message.data.get('DisambiguationTitle')
+        if title:
+            try:
+                results = wiki.search(title, 1)
+                summary = re.sub(
+                    r'\([^)]*\)|/[^/]*/', '',
+                    wiki.summary(results[0], 1))
+                self.disambiguate = None
+                self.speak(summary)
+            except:
+                pass
+
 
     def stop(self):
         pass
